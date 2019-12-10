@@ -63,6 +63,8 @@ extern size_t OFFSET(filedesc, fd_ofiles);
 extern size_t OFFSET(fileglob, fg_ops);
 extern size_t OFFSET(fileglob, fg_data);
 
+extern size_t OFFSET(fileops, fo_type);
+
 extern size_t OFFSET(fileproc, f_fglob);
 
 // Parameters for ipc_entry.
@@ -105,9 +107,13 @@ extern size_t SIZE(ip6_pktopts);
 extern size_t OFFSET(ip6_pktopts, ip6po_pktinfo);
 extern size_t OFFSET(ip6_pktopts, ip6po_minmtu);
 
+extern size_t OFFSET(kernel_base, socketops);
+extern size_t OFFSET(kernel_base, kernproc);
+
 extern size_t OFFSET(pipe, pipe_buffer);
 
 // Parameters for struct proc.
+extern size_t OFFSET(proc, task);
 extern size_t OFFSET(proc, p_pid);
 extern size_t OFFSET(proc, p_ucred);
 extern size_t OFFSET(proc, p_fd);

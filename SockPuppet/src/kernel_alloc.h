@@ -136,7 +136,7 @@ size_t kalloc_spray_size(mach_port_t *holding_ports, size_t *port_count,
 		size_t min_kalloc_size, size_t kalloc_zone, size_t spray_size);
 
 /*
- * ool_ports_spray_size_with_gc
+ * ool_ports_spray_size
  *
  * Description:
  * 	Spray spray_size bytes of kernel memory with the specified out-of-line ports.
@@ -156,11 +156,6 @@ size_t kalloc_spray_size(mach_port_t *holding_ports, size_t *port_count,
  * Returns:
  * 	Returns the number of bytes of OOL ports actually sprayed.
  */
-size_t ool_ports_spray_size_with_gc(mach_port_t *holding_ports, size_t *holding_port_count,
-		size_t message_size, const mach_port_t *ool_ports, size_t ool_port_count,
-		mach_msg_type_name_t ool_disposition, size_t spray_size);
-
-// Added by nedwill, doesn't sleep at gc boundaries.
 size_t ool_ports_spray_size(mach_port_t *holding_ports, size_t *holding_port_count,
 		size_t message_size, const mach_port_t *ool_ports, size_t ool_port_count,
 		mach_msg_type_name_t ool_disposition, size_t spray_size);

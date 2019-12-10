@@ -21,7 +21,10 @@ DanglingOptions::DanglingOptions() : dangling_(false) {
 
   // Allocate the options struct by setting any value, then free it
   // so all use of this class is against UaF'd socket option buffers.
-  int minmtu = -1;
+  // -1, 0, or 1 can be used here. Use 0 so that we can later look for
+  // kaddrs by finding a negative minmtu value (representing upper 32 bits
+  // of a kernel address).
+  int minmtu = 0;
   SetMinmtu(&minmtu);
   FreeOptions();
 }

@@ -10,6 +10,12 @@ extern "C" {
 
 #include "exploit.h"
 
+/*
+1. Cleanup header imports, delete unused files/functions
+2. Check file headers
+3. Release...
+*/
+
 int main(int argc, char *argv[]) {
   IOSurface_init();
 

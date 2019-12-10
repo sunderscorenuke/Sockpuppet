@@ -33,6 +33,11 @@ public:
     return ool_holding_ports_;
   }
 
+  void Clear() {
+    ool_ports_.clear();
+    ool_holding_ports_.clear();
+  }
+
 private:
   std::vector<mach_port_t> ool_ports_;
   // Use unique_ptr to ensure only one port at a time

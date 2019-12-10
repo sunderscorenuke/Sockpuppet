@@ -69,6 +69,8 @@ offsets__iphone8_2__16E227() {
 	OFFSET(fileglob, fg_ops) = 0x28;
 	OFFSET(fileglob, fg_data) = 0x38;
 
+	OFFSET(fileops, fo_type) = 0;
+
 	OFFSET(fileproc, f_fglob) = 8;
 
 	SIZE(ipc_entry)               = 0x18;
@@ -100,8 +102,12 @@ offsets__iphone8_2__16E227() {
 	SIZE(ipc_voucher)       =   0x50;
 	BLOCK_SIZE(ipc_voucher) = 0x4000;
 
+	OFFSET(kernel_base, socketops) = 0x7f478;
+	OFFSET(kernel_base, kernproc) = 0x6612a0;
+
 	OFFSET(pipe, pipe_buffer) = 0x10;
 
+	OFFSET(proc, task)    = 0x10;
 	OFFSET(proc, p_pid)   = 0x60;
 	OFFSET(proc, p_ucred) = 0xf8;
 	OFFSET(proc, p_fd)    = 0x100;
@@ -126,6 +132,14 @@ offsets__iphone8_2__16E227() {
 	OFFSET(task, bsd_info) = 0x358;
 }
 
+static void
+offsets__iphone6_1__16E227() {
+	offsets__iphone8_2__16E227();
+
+	OFFSET(kernel_base, socketops) = 0x3d7658;
+	OFFSET(kernel_base, kernproc) = 0x18d1608;
+}
+
 // Initialize offset parameters whose values are computed from other parameters.
 static void
 initialize_computed_offsets() {
@@ -136,6 +150,7 @@ initialize_computed_offsets() {
 // A list of offset initializations by platform.
 static struct initialization offsets[] = {
 	{ "iPhone8,2", "16E227", offsets__iphone8_2__16E227  },
+	{ "iPhone6,1", "16E227", offsets__iphone6_1__16E227  },
 	{ "*",          "*",     initialize_computed_offsets },
 };
 
